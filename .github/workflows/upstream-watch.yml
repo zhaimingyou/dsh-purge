@@ -41,6 +41,9 @@ concurrency:
 env:
   UPSTREAM_REPO: kingcharleslzy-ai/dsh-purge
   GH_TOKEN: ${{ github.token }}
+  # 定时跑 = 自动跟版（跟就开 PR）；手动跑 = 按输入来。定时绝不 dry-run 打印完就结束。
+  MODE: ${{ github.event_name == 'schedule' && 'prepare' || inputs.mode }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
 
 jobs:
   watch:
@@ -110,7 +113,7 @@ jobs:
             || { echo "::warning::issue 开不出来（仓库可能关了 Issues）；报告见本次 run 的 Artifacts 与 Summary"; exit 0; }
 
       - name: 准备跟版分支（仅 跟 + prepare + 非 dry-run）
-        if: steps.review.outputs.kind == 'follow' && inputs.mode == 'prepare' && inputs.dry_run == false
+        if: steps.review.outputs.kind == 'follow' && env.MODE == 'prepare' && env.DRY_RUN == 'false'
         id: prepare
         run: |
           set -euo pipefail
@@ -136,7 +139,7 @@ jobs:
           echo "pr=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: dry-run 打印计划
-        if: steps.review.outputs.kind == 'follow' && inputs.mode == 'prepare' && inputs.dry_run == true
+        if: steps.review.outputs.kind == 'follow' && env.MODE == 'prepare' && env.DRY_RUN == 'true'
         run: |
           echo "dry-run：不做任何改动。真实执行会："
           echo "  1) git checkout -B follow/${{ steps.review.outputs.to }} ${{ steps.review.outputs.to }}"
