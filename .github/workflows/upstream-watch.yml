@@ -103,11 +103,11 @@ jobs:
           num=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label upstream-watch --json number,title \
             --jq ".[] | select(.title==\"$title\") | .number" | head -1)
           if [ -n "$num" ]; then
-            gh issue comment "$num" -R "$GITHUB_REPOSITORY" --body "$body"
-          else
-            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body" --label upstream-watch \
-              || gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+            gh issue comment "$num" -R "$GITHUB_REPOSITORY" --body "$body" && exit 0
           fi
+          gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body" --label upstream-watch \
+            || gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body" \
+            || { echo "::warning::issue 开不出来（仓库可能关了 Issues）；报告见本次 run 的 Artifacts 与 Summary"; exit 0; }
 
       - name: 准备跟版分支（仅 跟 + prepare + 非 dry-run）
         if: steps.review.outputs.kind == 'follow' && inputs.mode == 'prepare' && inputs.dry_run == false
