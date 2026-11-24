@@ -117,9 +117,16 @@ const assetPrev = prev ? (() => {
     return null;
   }
 })() : null;
-const testsLine = testsFile && fs.existsSync(testsFile)
-  ? (fs.readFileSync(testsFile, "utf8").match(/^ℹ (tests|pass|fail) \d+$/gm) || []).join(" · ").replace(/ℹ /g, "")
-  : "";
+// node --test 在终端跑是 spec 报告（ℹ tests 752），在 CI 非 TTY 跑是 TAP（# tests 752），两种都要认。
+const testsLine = (() => {
+  if (!testsFile || !fs.existsSync(testsFile)) return "";
+  const text = fs.readFileSync(testsFile, "utf8");
+  const hits = [...text.matchAll(/^(?:ℹ|#)\s+(tests|pass|fail)\s+(\d+)\s*$/gm)];
+  if (hits.length) return hits.map((m) => `${m[1]} ${m[2]}`).join(" · ");
+  const ok = (text.match(/^ok \d+ - /gm) || []).length;
+  const notOk = (text.match(/^not ok \d+ - /gm) || []).length;
+  return ok || notOk ? `pass ${ok} · fail ${notOk}（TAP 计数）` : "";
+})();
 
 const L = [];
 L.push("## 本版摘要（自动生成，装之前先看这段）", "");
