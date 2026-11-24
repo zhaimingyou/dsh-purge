@@ -91,19 +91,22 @@ jobs:
             review.txt
 
       - name: 建标签（幂等）
-        run: gh label create upstream-watch --color 0e8a16 --description "上游体检" 2>/dev/null || true
+        run: |
+          gh label create upstream-watch -R "$GITHUB_REPOSITORY" --color 0e8a16 --description "上游体检" \
+            || gh label edit upstream-watch -R "$GITHUB_REPOSITORY" --color 0e8a16 --description "上游体检"
 
       - name: 开路 issue（审/停，或手动 report）
         if: inputs.force_issue == true || (steps.review.outputs.kind != 'none' && (steps.review.outputs.kind != 'follow' || inputs.mode == 'report'))
         run: |
           title="上游体检 · ${{ steps.review.outputs.to }}"
           body="$(cat review.md)"
-          num=$(gh issue list --state open --label upstream-watch --json number,title \
+          num=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label upstream-watch --json number,title \
             --jq ".[] | select(.title==\"$title\") | .number" | head -1)
           if [ -n "$num" ]; then
-            gh issue comment "$num" --body "$body"
+            gh issue comment "$num" -R "$GITHUB_REPOSITORY" --body "$body"
           else
-            gh issue create --title "$title" --body "$body" --label upstream-watch
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body" --label upstream-watch \
+              || gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body"
           fi
 
       - name: 准备跟版分支（仅 跟 + prepare + 非 dry-run）
@@ -126,7 +129,7 @@ jobs:
           git add -A
           git commit -m "follow upstream ${TO}: repoint + ${next}"
           git push origin "$BRANCH"
-          gh pr create --base master --head "$BRANCH" \
+          gh pr create -R "$GITHUB_REPOSITORY" --base master --head "$BRANCH" \
             --title "跟上游 ${TO} → fork ${next}" \
             --body "$(cat review.md)" \
             --label upstream-watch || true
