@@ -1,0 +1,65 @@
+name: Publish fork release
+# master 上版本号一变（= 合了 follow PR），就打包发自己的 release。
+# 面板读的 releases/latest 由此更新；已存在同版本 release 时直接跳过，可重复运行。
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 读版本
+        id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: 是否已发过
+        id: gate
+        run: |
+          if gh release view "v${{ steps.v.outputs.version }}" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "v${{ steps.v.outputs.version }} 已存在，跳过"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 测试门
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          npm ci --ignore-scripts --legacy-peer-deps
+          npm --prefix packages/purge-panel ci --ignore-scripts --legacy-peer-deps
+          npm run check:docs
+          npm run check:client
+          npm test
+
+      - name: 打包并发版
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          v="${{ steps.v.outputs.version }}"
+          npm pack --ignore-scripts
+          cp "dsh-purge-community-$v.tgz" dsh-purge-community.tgz
+          sha256sum "dsh-purge-community-$v.tgz" dsh-purge-community.tgz > SHA256SUMS.txt
+          gh release create "v$v" "dsh-purge-community-$v.tgz" dsh-purge-community.tgz SHA256SUMS.txt \
+            --target "$GITHUB_SHA" \
+            --title "dsh-purge Community $v (fork)" \
+            --notes-file "docs/releases/$v.md"

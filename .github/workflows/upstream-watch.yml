@@ -1,0 +1,143 @@
+name: Upstream watch
+# 上游（kingcharleslzy-ai/dsh-purge）体检：定时/手动两用。
+#
+#   跟（只有文档/测试/面板样式变化）→ 自动建分支 follow/<tag>：repoint + bump + 全量测试 → 开 PR
+#   审（补丁表有增删改）            → 只开 issue，附体检报告，你点「Approve」再走 PR
+#   停（新域名/新进程/权限类补丁变动）→ 只开 issue，绝不自动动代码
+#
+# 永不自动合并、永不打 tag、永不发版——发版由 .github/workflows/publish.yml 在 master 版本变化时做。
+on:
+  schedule:
+    - cron: "0 1 * * *" # 每天 09:00 Asia/Shanghai
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "report = 只体检并开 issue；prepare = 跟的时候顺带开 PR"
+        type: choice
+        options: [report, prepare]
+        default: report
+      upstream_ref:
+        description: "指定上游 ref（留空 = 自动取最新上游 tag）"
+        type: string
+        default: ""
+      dry_run:
+        description: "prepare 时只打印计划，不建分支、不开 PR"
+        type: boolean
+        default: true
+      force_issue:
+        description: "即使没有更新的上游也开一次 issue（用于验证通知链路）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: kingcharleslzy-ai/dsh-purge
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 取上游仓库与 tag
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || \
+            git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --prune upstream --tags --force
+          git config user.name "upstream-watch[bot]"
+          git config user.email "upstream-watch@users.noreply.github.com"
+
+      - name: 体检
+        id: review
+        run: |
+          set +e
+          ARGS=()
+          if [ -n "${{ inputs.upstream_ref }}" ]; then ARGS+=(--to "${{ inputs.upstream_ref }}"); fi
+          node .github/scripts/upstream-review.mjs "${ARGS[@]}" \
+            --json-out review.json --markdown-out review.md > review.txt 2>&1
+          code=$?
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          node -e "
+            const fs=require('fs');
+            const r=JSON.parse(fs.readFileSync('review.json','utf8'));
+            const kind=!r.upstreamNewer?'none':r.verdict.startsWith('停')?'stop':r.verdict.startsWith('审')?'review':'follow';
+            const out=fs.openSync(process.env.GITHUB_OUTPUT,'a');
+            fs.writeSync(out, \`kind=\${kind}\nto=\${r.to}\nfrom=\${r.from}\nverdict=\${r.verdict}\n\`);
+            fs.closeSync(out);
+          "
+          cat review.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-review
+          path: |
+            review.md
+            review.json
+            review.txt
+
+      - name: 建标签（幂等）
+        run: gh label create upstream-watch --color 0e8a16 --description "上游体检" 2>/dev/null || true
+
+      - name: 开路 issue（审/停，或手动 report）
+        if: inputs.force_issue == true || (steps.review.outputs.kind != 'none' && (steps.review.outputs.kind != 'follow' || inputs.mode == 'report'))
+        run: |
+          title="上游体检 · ${{ steps.review.outputs.to }}"
+          body="$(cat review.md)"
+          num=$(gh issue list --state open --label upstream-watch --json number,title \
+            --jq ".[] | select(.title==\"$title\") | .number" | head -1)
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label upstream-watch
+          fi
+
+      - name: 准备跟版分支（仅 跟 + prepare + 非 dry-run）
+        if: steps.review.outputs.kind == 'follow' && inputs.mode == 'prepare' && inputs.dry_run == false
+        id: prepare
+        run: |
+          set -euo pipefail
+          TO="${{ steps.review.outputs.to }}"
+          BRANCH="follow/${TO#v}"
+          git checkout -B "$BRANCH" "$TO"
+          node .github/scripts/repoint-fork.mjs --repo "${{ github.repository }}" --repo-dir "$GITHUB_WORKSPACE" --write
+          cur=$(node -p "require('./package.json').version")
+          next=$(node -e "const v='$cur'.split('.');v[2]=String(Number(v[2])+1);console.log(v.join('.'))")
+          node .github/scripts/bump-version.mjs "$next" --repo-dir "$GITHUB_WORKSPACE"
+          npm ci --ignore-scripts --legacy-peer-deps
+          npm --prefix packages/purge-panel ci --ignore-scripts --legacy-peer-deps
+          npm run check:docs
+          npm run check:client
+          npm test
+          git add -A
+          git commit -m "follow upstream ${TO}: repoint + ${next}"
+          git push origin "$BRANCH"
+          gh pr create --base master --head "$BRANCH" \
+            --title "跟上游 ${TO} → fork ${next}" \
+            --body "$(cat review.md)" \
+            --label upstream-watch || true
+          echo "pr=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: dry-run 打印计划
+        if: steps.review.outputs.kind == 'follow' && inputs.mode == 'prepare' && inputs.dry_run == true
+        run: |
+          echo "dry-run：不做任何改动。真实执行会："
+          echo "  1) git checkout -B follow/${{ steps.review.outputs.to }} ${{ steps.review.outputs.to }}"
+          echo "  2) node .github/scripts/repoint-fork.mjs --write"
+          echo "  3) node .github/scripts/bump-version.mjs <下一个补丁号>"
+          echo "  4) npm ci + check:docs + check:client + npm test"
+          echo "  5) push 分支并开 PR（不合并、不打 tag）"
