@@ -121,7 +121,7 @@ test('oversized Content-Length is reported before reading the release body', asy
 
 test('metadata-only version check requires the official published tag and never follows redirects', async () => {
   const { readPublishedVersion } = await import('../lib/update.js');
-  const repo = 'kingcharleslzy-ai/dsh-purge';
+  const repo = 'zhaimingyou/dsh-purge';
   const release = { tag_name:'v1.7.11', draft:false, prerelease:false, html_url:`https://github.com/${repo}/releases/tag/v1.7.11` };
   const fetch = override => async url => {
     assert.equal(url.href, `https://api.github.com/repos/${repo}/releases/latest`);

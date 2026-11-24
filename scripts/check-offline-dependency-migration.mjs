@@ -13,7 +13,7 @@ fs.mkdirSync(profile, {recursive:true});
 const source = (name) => {
   const dir = path.join(root,name,'package');
   fs.mkdirSync(dir,{recursive:true});
-  const meta = {name,version:'1.0.0',main:'index.js',repository:{url:'https://github.com/kingcharleslzy-ai/dsh-purge.git'}};
+  const meta = {name,version:'1.0.0',main:'index.js',repository:{url:'https://github.com/zhaimingyou/dsh-purge.git'}};
   fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify(meta));
   fs.writeFileSync(path.join(dir,'index.js'),'module.exports = {};');
   const tgz=path.join(root,name+'.tgz');
@@ -29,7 +29,7 @@ try {
   fs.writeFileSync(path.join(profile,'cordis.patch.yml'),'[]\n# user patch\n');
   add(pkg);
   const prior=read();
-  prior.dependencies[PACKAGE]='https://github.com/kingcharleslzy-ai/dsh-purge/releases/latest/download/dsh-purge-community.tgz';
+  prior.dependencies[PACKAGE]='https://github.com/zhaimingyou/dsh-purge/releases/latest/download/dsh-purge-community.tgz';
   fs.writeFileSync(manifest,JSON.stringify(prior));
   // Re-resolve the legacy floating spec without allowing network access.
   assert.throws(()=>add(other),error=>/offline|NO_OFFLINE|NO_TARBALL|network mode/i.test(String(error.stdout)+String(error.stderr)));

@@ -26,5 +26,5 @@ test("the install manifest pins the package archive to its own release tag", asy
   const {readFile} = await import("node:fs/promises");
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(pkg.dsh.install.tarball,
-    `https://github.com/kingcharleslzy-ai/dsh-purge/releases/download/v${pkg.version}/${pkg.name}-${pkg.version}.tgz`);
+    `https://github.com/zhaimingyou/dsh-purge/releases/download/v${pkg.version}/${pkg.name}-${pkg.version}.tgz`);
 });
