@@ -45,11 +45,25 @@ jobs:
       - name: 测试门
         if: steps.gate.outputs.skip == 'false'
         run: |
+          set -o pipefail
           npm ci --ignore-scripts --legacy-peer-deps
           npm --prefix packages/purge-panel ci --ignore-scripts --legacy-peer-deps
           npm run check:docs
           npm run check:client
-          npm test
+          npm test 2>&1 | tee "$RUNNER_TEMP/tests.txt"
+
+      - name: 生成发行说明（正文 + 本版摘要）
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          v="${{ steps.v.outputs.version }}"
+          node .github/scripts/release-summary.mjs \
+            --version "$v" \
+            --out "$RUNNER_TEMP/summary.md" \
+            --tests "$RUNNER_TEMP/tests.txt"
+          { cat "docs/releases/$v.md"; echo; cat "$RUNNER_TEMP/summary.md"; } > "$RUNNER_TEMP/notes.md"
+          echo "--- 发行说明预览 ---"
+          head -40 "$RUNNER_TEMP/notes.md"
 
       - name: 打包并发版
         if: steps.gate.outputs.skip == 'false'
@@ -62,4 +76,4 @@ jobs:
           gh release create "v$v" "dsh-purge-community-$v.tgz" dsh-purge-community.tgz SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
             --title "dsh-purge Community $v (fork)" \
-            --notes-file "docs/releases/$v.md"
+            --notes-file "$RUNNER_TEMP/notes.md"

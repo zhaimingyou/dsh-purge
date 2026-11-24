@@ -1,3 +1,7 @@
+# 1.7.22
+
+- 待补：本版变化。
+
 # 1.7.21
 
 - 本仓库（zhaimingyou/dsh-purge）首次自维护发行：`REPOSITORY` / `SOURCE_REPO`，以及安装脚本、市场构建、三个 workflow 的仓库守卫统一指向本 fork。
